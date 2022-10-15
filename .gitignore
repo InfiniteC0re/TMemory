@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+/.vs/TMemory/v17
+/TMemory/x64/Debug
+/x64/Debug
+*.filters
+*.user

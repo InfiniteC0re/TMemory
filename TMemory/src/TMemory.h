@@ -7,6 +7,37 @@
 
 namespace Toshi
 {
+	class TMemoryHeap
+	{
+	public:
+		typedef uint32_t Flags;
+		enum Flags_ : Flags
+		{
+			Flags_UseMutex = BITFIELD(0),
+			Flags_AllocAsPile = BITFIELD(2),
+		};
+
+		friend class TMemory;
+
+	public:
+		void* Alloc(size_t size);
+		void LogError(size_t size);
+
+		inline void* Data() { return static_cast<void*>(this + 1); }
+
+	private:
+		Flags m_Flags;
+		uint32_t m_Unk1;
+		uint32_t m_Unk2;
+		uint32_t m_Size;
+		uint32_t m_Unk4;
+		uint32_t m_Unk5;
+		const char* m_Name;
+		uint32_t m_Unk6;
+		uint32_t m_Unk7;
+		uint32_t m_Unk8;
+	};
+
 	class TMemory_Context
 	{
 	private:
@@ -27,10 +58,10 @@ namespace Toshi
 
 		static void* s_Sysheap;
 		static void* s_Heap;
-		static void* s_GlobalBlock;
+		static TMemoryHeap* s_GlobalHeap;
 		static T2Mutex s_Mutex;
 	};
-
+	
 	class TMemory
 	{
 	public:
@@ -46,15 +77,20 @@ namespace Toshi
 
 		enum Error_ : Error
 		{
-			Error_Ok    = 0,
-			Error_Heap  = 1
+			Error_Ok   = 0,
+			Error_Heap = 1
 		};
 
 	public:
-		TMemory(Flags flags = Flags_None, uint32_t blockSize = 0x28000000) :
+		TMemory(Flags flags = Flags_None, BlockSize blockSize = 0x28000000) :
 			m_Flags(flags), m_GlobalSize(blockSize) { }
 
-		void* AllocMem(void* heap, size_t heapSize, uint32_t unk, const char* name);
+		static int RetrieveSystemInfo();
+		static size_t IDK(void* ptr, size_t size);
+		static TMemoryHeap* AllocMem(void* ptr, size_t heapSize, TMemoryHeap::Flags flags, const char* name);
+
+		inline static void LockMutex()   { TMemory_Context::s_Mutex.Lock(Flags_None); }
+		inline static void UnlockMutex() { TMemory_Context::s_Mutex.Unlock(); }
 
 	public:
 		/*
@@ -68,4 +104,9 @@ namespace Toshi
 		Flags m_Flags;
 		BlockSize m_GlobalSize;
 	};
+
+	static void* alloc()
+	{
+
+	}
 }

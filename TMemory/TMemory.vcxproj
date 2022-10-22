@@ -140,12 +140,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Memory\dlmalloc.c" />
     <ClCompile Include="src\Platform\Windows\T2Mutex_Win.cpp" />
     <ClCompile Include="src\Platform\Windows\TUtils_Win.cpp" />
     <ClCompile Include="src\TMemory.cpp" />
     <ClCompile Include="src\Platform\Windows\TMemory_Win.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Memory\dlmalloc.h" />
     <ClInclude Include="src\T2Mutex.h" />
     <ClInclude Include="src\TMemory.h" />
     <ClInclude Include="src\TUtils.h" />

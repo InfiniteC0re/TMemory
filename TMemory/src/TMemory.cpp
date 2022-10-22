@@ -1,71 +1,218 @@
+#include "Memory/dlmalloc.h"
 #include "TMemory.h"
+
 #include <iostream>
 
 namespace Toshi
 {
-	TMemory_Context::t_Malloc TMemory_Context::s_Malloc   = nullptr;
-	TMemory_Context::t_Calloc TMemory_Context::s_Calloc   = nullptr;
-	TMemory_Context::t_Realloc TMemory_Context::s_Realloc = nullptr;
-	TMemory_Context::t_Idk TMemory_Context::s_Idk         = nullptr;
-	TMemory_Context::t_Malloc2 TMemory_Context::s_Malloc2 = nullptr;
-	TMemory_Context::t_Free TMemory_Context::s_Free       = nullptr;
+	TMemoryContext TMemory::s_Context;
+	TMemoryHeap* TMemory::s_GlobalHeap         = nullptr;
+	T2Mutex TMemory::s_GlobalMutex             = T2Mutex();
 
-	void* TMemory_Context::s_Sysheap           = nullptr;
-	void* TMemory_Context::s_Heap              = nullptr;
-	TMemoryHeap* TMemory_Context::s_GlobalHeap = nullptr;
-	T2Mutex TMemory_Context::s_Mutex           = T2Mutex();
-
-	void* TMemoryHeap::Alloc(size_t size)
+	void TMemory::FillMemory(void* ptr, size_t value, size_t size)
 	{
-		// 006fc520
-
-		if (m_Flags & Flags_AllocAsPile)
+		if (size >= sizeof(void*))
 		{
-			// FUN_006fc8b0(this,size,4);
+			size_t* pos = static_cast<size_t*>(ptr);
+			size_t  stepCount = size / sizeof(void*);
+			size -= stepCount * sizeof(void*);
+
+			for (; stepCount != 0; stepCount--) *(pos++) = value;
+
+			ptr = pos;
 		}
 
-		if (m_Flags & Flags_UseMutex)
+		while (size > 0)
 		{
-			TMemory::LockMutex();
+			uint8_t stepSize = size & 0b11;
+			if (stepSize == 0) stepSize = 4;
+
+			if (size == 1)
+			{
+				*(uint8_t*)ptr = (uint8_t)value;
+			}
+			else
+			{
+				if (size == 2)
+				{
+					*(uint16_t*)ptr = (uint16_t)value;
+				}
+				else if (size == 3)
+				{
+					*(uint16_t*)ptr = (uint16_t)value;
+					*(uint8_t*)((uintptr_t)ptr + sizeof(uint16_t)) = (uint8_t)value;
+				}
+				else if (size == 4)
+				{
+					*(uint32_t*)ptr = (uint32_t)value;
+				}
+			}
+
+			ptr = reinterpret_cast<void*>((uintptr_t)ptr + stepSize);
+			size -= stepSize;
 		}
-
-		// FUN_006fcb60(this->m_Unk3,size);
-
-		if (m_Flags & Flags_UseMutex)
-		{
-			TMemory::UnlockMutex();
-		}
-
-		return nullptr;
 	}
 
-	void TMemoryHeap::LogError(size_t size)
+	void TMemory::OutOfMem(TMemoryHeap* heap, size_t size)
 	{
 		// 006fc7c0
-
 		std::cout << "=========================================================================\n";
 		std::cout << "MEMORY ALLOCATION FAILED\n";
 		std::cout << "------------------------\n";
-		std::cout << "HEAP: "  << m_Name  << "\n";
+		std::cout << "HEAP: " << heap->m_Name << "\n";
 		std::cout << "------------------------\n";
-		std::cout << "failed to allocate " << size << " bytes (~" << (size + 0x200 >> 10) << "KB, ~" << (size + 0x80000 >> 0x14) << "MB)\n";
+		std::cout << "failed to allocate " << size << " bytes (~" << (size + (0x200 >> 10)) << "KB, ~" << (size + (0x80000 >> 0x14)) << "MB)\n";
 		// FUN_006fbec0(local_e8);
 		std::cout << "=========================================================================\n";
 		// ...
 	}
 
-	TMemoryHeap* TMemory::AllocMem(void* ptr, size_t heapSize, TMemoryHeap::Flags flags, const char* name)
+	void* TMemory::dlheapmalloc(TMemoryHeap* heap, size_t size)
 	{
-		size_t size = heapSize - sizeof(TMemoryHeap);
+		if (heap->m_Flags & TMemoryHeap::Flags_AllocAsPile)
+		{
+			// TODO: Toshi::TMemoryHeap::AllocAsPile(heap, size, 4) - 0x006fc8b0
+			return heap;
+		}
 
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::AcquireMutex();
+
+		void* chunk = mspace_malloc(heap->m_MSpace, size);
+		if (chunk == nullptr) TMemory::OutOfMem(heap, size);
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::ReleaseMutex();
+		return chunk;
+	}
+
+	void* TMemory::dlheapcalloc(TMemoryHeap* heap, size_t nitems, size_t size)
+	{
+		if (heap->m_Flags & TMemoryHeap::Flags_AllocAsPile)
+		{
+			// TODO: Toshi::TMemoryHeap::AllocAsPile(heap, size, 4) - 0x006fc8b0
+			return heap;
+		}
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::AcquireMutex();
+
+		void* chunk = mspace_calloc(heap->m_MSpace, nitems, size);
+		if (chunk == nullptr) TMemory::OutOfMem(heap, size);
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::ReleaseMutex();
+		return chunk;
+	}
+
+	void* TMemory::dlheapmemalign(TMemoryHeap* heap, size_t alignment, size_t size)
+	{
+		if (heap->m_Flags & TMemoryHeap::Flags_AllocAsPile)
+		{
+			// TODO: Toshi::TMemoryHeap::AllocAsPile(heap, size, alignment) - 0x006fc8b0
+			return heap;
+		}
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::AcquireMutex();
+
+		void* chunk = mspace_memalign(heap->m_MSpace, alignment, size);
+		if (chunk == nullptr) TMemory::OutOfMem(heap, size);
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::ReleaseMutex();
+		return chunk;
+	}
+
+	void* TMemory::dlheaprealloc(TMemoryHeap* heap, void* mem, size_t newsize)
+	{
+		if (heap->m_Flags & TMemoryHeap::Flags_AllocAsPile)
+		{
+			// TODO: Toshi::TMemoryHeap::AllocAsPile(heap, size, alignment) - 0x006fc8b0
+			return heap;
+		}
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::AcquireMutex();
+
+		void* chunk = mspace_realloc(heap->m_MSpace, mem, newsize);
+		if (chunk == nullptr) TMemory::OutOfMem(heap, newsize);
+
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::ReleaseMutex();
+		return chunk;
+	}
+
+	void TMemory::dlheapfree(TMemoryHeap* heap, void* mem)
+	{
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::AcquireMutex();
+		
+		mspace_free(heap->m_MSpace, mem);
+		
+		if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) TMemory::ReleaseMutex();
+	}
+
+	void TMemory::dlheapdestroy(TMemoryHeap* heap)
+	{
+		if (heap != nullptr)
+		{
+			if (heap->m_Flags & TMemoryHeap::Flags_UseMutex) heap->DestroyMutex();
+			destroy_mspace(heap->m_MSpace);
+			heap->m_MSpace = nullptr;
+
+			if (heap->m_SubHeapBuffer != nullptr)
+			{
+				TFree(heap->m_SubHeapBuffer);
+				heap->m_SubHeapBuffer = nullptr;
+			}
+		}
+	}
+
+	TMemoryHeap* TMemory::dlheapcreatesubheap(TMemoryHeap* heap, size_t size, Flags flags, const char name[15])
+	{
+		TMemoryHeap* subHeap = nullptr;
+
+		size_t subHeapSize = size + sizeof(TMemoryHeap);
+		void* mem = heap->Malloc(subHeapSize);
+
+		if (mem != nullptr)
+		{
+			subHeap = TMemory::dlheapcreateinplace(mem, subHeapSize, flags, name);
+
+			if (subHeap == nullptr)
+			{
+				TFree(mem);
+			}
+			else
+			{
+				subHeap->m_SubHeapBuffer = mem;
+			}
+		}
+		
+		return subHeap;
+	}
+
+	TMemoryHeap* TMemory::dlheapcreateinplace(void* ptr, size_t heapSize, TMemoryHeap::Flags flags, const char name[15])
+	{
 		TASSERT(size > 0, "Allocation size is zero");
 		TASSERT((size & 3) == 0, "Allocation size is not aligned to 4");
 		
-		TMemoryHeap* pHeap = static_cast<TMemoryHeap*>(ptr);
+		TMemoryHeap* heap = static_cast<TMemoryHeap*>(ptr);
+		
+		size_t capacity = heapSize - sizeof(TMemoryHeap);
+		heap->m_MSpace = create_mspace_with_base(heap + 1, capacity, 0);
 
-		pHeap->m_Unk2 = 0;
-		IDK(pHeap + 1, size);
+		if (heap->m_MSpace != nullptr)
+		{
+			heap->m_Flags = flags;
+			strncpy_s(heap->m_Name, name, sizeof(heap->m_Name));
 
-		return nullptr;
+			if (flags & TMemoryHeap::Flags_UseMutex)
+			{
+				heap->CreateMutex();
+			}
+			else
+			{
+				FillMemory(&heap->m_Mutex, 0, sizeof(heap->m_Mutex));
+			}
+
+			return heap;
+		}
+		else
+		{
+			return nullptr;
+		}
 	}
 }

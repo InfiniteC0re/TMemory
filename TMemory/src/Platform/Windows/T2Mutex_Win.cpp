@@ -7,6 +7,7 @@ namespace Toshi
 {
 	bool T2Mutex::Create()
 	{
+		Destroy();
 		m_Mutex = CreateMutexA(NULL, FALSE, NULL);
 		TASSERT(m_Mutex != NULL, "Failed to create mutex");
 		return true;
@@ -26,5 +27,11 @@ namespace Toshi
 	{
 		TASSERT(m_Mutex != NULL, "Mutex is NULL");
 		return ReleaseMutex(m_Mutex) != FALSE;
+	}
+
+	void T2Mutex::Destroy()
+	{
+		CloseHandle(m_Mutex);
+		m_Mutex = NULL;
 	}
 }

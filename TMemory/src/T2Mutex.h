@@ -15,6 +15,7 @@ namespace Toshi
 
 	public:
 		T2Mutex() = default;
+		~T2Mutex() { Destroy(); }
 
 		// Returns true if success
 		bool Create();
@@ -24,6 +25,9 @@ namespace Toshi
 
 		// Returns true if success
 		bool Unlock();
+
+		// Destroys mutex
+		void Destroy();
 
 	private:
 		void* m_Mutex;
